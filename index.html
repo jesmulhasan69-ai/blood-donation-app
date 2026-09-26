@@ -1,24 +1,1059 @@
-<!DOCTYPE html>
-<html lang="bn">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blood Donation Family</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; max-width: 450px; width: 100%; }
-        h1 { color: #e63946; margin-bottom: 10px; }
-        p { color: #555; margin-bottom: 25px; line-height: 1.5; }
-        .btn { display: inline-block; background-color: #e63946; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-weight: bold; transition: background 0.3s; }
-        .btn:hover { background-color: #c5222f; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>🩸 Blood Donation Family</h1>
-        <p>জরুরি রক্তদাতা খুঁজুন অথবা একজন জীবনদাতা হিসেবে আমাদের সাথে যুক্ত হোন। আপনার সামান্য রক্তদান বাঁচাতে পারে একটি অমূল্য প্রাণ।</p>
-        <!-- আপনার Apps Script-এর মূল অ্যাপে যাওয়ার বাটন -->
-        <a href="https://script.google.com/macros/s/AKfycbzbhb-nmNbWVbq0ONTfZaaMjRP8rqldRIQNaJPewOgqJKWmrNVPaUl67NINEAy55enz/exec" target="_blank" class="btn">অ্যাপে প্রবেশ করুন</a>
-    </div>
-</body>
-</html>
+const SHEET_NAME = "Blood Donar DataBase";
+const FEEDBACK_SHEET_NAME = "Feedback";
+// আপনার কাঙ্ক্ষিত ইমেইল দিন (ফাঁকা রাখলে যে জিমেইল থেকে স্ক্রিপ্ট চলছে স্বয়ংক্রিয়ভাবে তাতে মেইল যাবে)
+const ADMIN_EMAIL = "jesmulhasan69@gmail.com"; 
+
+function doGet() {
+  return HtmlService.createHtmlOutput(getHTML())
+    .setTitle("Blood Donation Group")
+    .addMetaTag("viewport", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function getDatabaseSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME) || 
+              ss.getSheetByName("Blood Donar Database") || 
+              ss.getSheetByName("Donor Database") || 
+              ss.getSheets()[0];
+  return sheet;
+}
+
+// অভিযোগ ও পরামর্শের শিট তৈরি বা লোড করা
+function getFeedbackSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(FEEDBACK_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(FEEDBACK_SHEET_NAME);
+    sheet.appendRow(["তারিখ ও সময়", "নাম", "মোবাইল নম্বর", "ধরন", "বার্তা / অভিযোগ"]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#f8d7da");
+  }
+  return sheet;
+}
+
+function cleanBlood(val) {
+  if (!val) return "";
+  let b = String(val).toUpperCase().trim();
+
+  b = b.replace(/নেগেটিভ|নেগেটিপ|\-VE|NEGATIVE/g, "-");
+  b = b.replace(/পজিটিভ|পজেটিভ|\+VE|POSITIVE/g, "+");
+  b = b.replace(/এবি/g, "AB").replace(/বি/g, "B").replace(/এ/g, "A").replace(/[ও০]/g, "O");
+  b = b.replace(/[\s_()\[\]]/g, "");
+  b = b.replace(/0/g, "O");
+
+  if (b.indexOf("AB+") !== -1) return "AB+";
+  if (b.indexOf("AB-") !== -1) return "AB-";
+  if (b.indexOf("A+") !== -1) return "A+";
+  if (b.indexOf("A-") !== -1) return "A-";
+  if (b.indexOf("B+") !== -1) return "B+";
+  if (b.indexOf("B-") !== -1) return "B-";
+  if (b.indexOf("O+") !== -1) return "O+";
+  if (b.indexOf("O-") !== -1) return "O-";
+
+  return b;
+}
+
+function normalizeText(value) {
+  let text = String(value == null ? "" : value).toLowerCase().trim();
+  const banglaDigits = "০১২৩৪৫৬৭৮৯";
+  const englishDigits = "0123456789";
+  text = text.replace(/[০-৯]/g, ch => englishDigits[banglaDigits.indexOf(ch)]);
+  return text.replace(/[+()\-./,]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function uploadPhotoToDrive(base64Data, fileName) {
+  try {
+    const parts = base64Data.split(",");
+    const contentType = parts[0].split(":")[1].split(";")[0];
+    const bytes = Utilities.base64Decode(parts[1]);
+    const blob = Utilities.newBlob(bytes, contentType, fileName);
+    
+    let folder;
+    const folders = DriveApp.getFoldersByName("Donor_Photos");
+    if (folders.hasNext()) {
+      folder = folders.next();
+    } else {
+      folder = DriveApp.createFolder("Donor_Photos");
+    }
+    
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return "https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w300";
+  } catch (err) {
+    return "";
+  }
+}
+
+function checkDonorEligibility(lastDateStr, gender) {
+  if (!lastDateStr || String(lastDateStr).trim() === "" || lastDateStr === "N/A") {
+    return { 
+      isEligible: true, 
+      daysRemaining: 0, 
+      nextDateFormatted: "", 
+      statusText: "🟢 এখনই দিতে পারবেন", 
+      badgeClass: "badge-ready" 
+    };
+  }
+
+  const lastDate = new Date(lastDateStr);
+  if (isNaN(lastDate.getTime())) {
+    return { 
+      isEligible: true, 
+      daysRemaining: 0, 
+      nextDateFormatted: "", 
+      statusText: "🟢 এখনই দিতে পারবেন", 
+      badgeClass: "badge-ready" 
+    };
+  }
+
+  const waitDays = (String(gender).toLowerCase() === "female") ? 120 : 90;
+  const nextDate = new Date(lastDate.getTime());
+  nextDate.setDate(nextDate.getDate() + waitDays);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  nextDate.setHours(0, 0, 0, 0);
+
+  const diffTime = nextDate.getTime() - today.getTime();
+  const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  const d = String(nextDate.getDate()).padStart(2, '0');
+  const m = String(nextDate.getMonth() + 1).padStart(2, '0');
+  const y = nextDate.getFullYear();
+  const nextDateFormatted = d + "/" + m + "/" + y;
+
+  if (daysRemaining <= 0) {
+    return { 
+      isEligible: true, 
+      daysRemaining: 0, 
+      nextDateFormatted: nextDateFormatted, 
+      statusText: "🟢 এখনই দিতে পারবেন", 
+      badgeClass: "badge-ready" 
+    };
+  } else {
+    return { 
+      isEligible: false, 
+      daysRemaining: daysRemaining, 
+      nextDateFormatted: nextDateFormatted, 
+      statusText: "⏳ " + daysRemaining + " দিন বাকি", 
+      badgeClass: "badge-waiting" 
+    };
+  }
+}
+
+function getDashboardData() {
+  const sheet = getDatabaseSheet();
+  const values = sheet.getDataRange().getDisplayValues();
+  
+  const stats = {
+    total: 0,
+    groups: { "A+": 0, "A-": 0, "B+": 0, "B-": 0, "AB+": 0, "AB-": 0, "O+": 0, "O-": 0 },
+    latestDonor: null
+  };
+
+  if (values.length <= 1) return stats;
+
+  for (let i = 0; i < values.length; i++) {
+    const row = values[i];
+    const id = String(row[0] || "").trim();
+    const name = String(row[1] || "").trim();
+    const phone = String(row[2] || "").trim();
+    const rawBlood = row[3];
+    const blood = cleanBlood(rawBlood);
+
+    if (name.toLowerCase() === "name" || name.toLowerCase() === "full name" || name === "নাম" || id.toLowerCase() === "id") {
+      continue;
+    }
+
+    if (!name && !id && !phone) continue;
+
+    if (stats.groups.hasOwnProperty(blood)) {
+      stats.groups[blood]++;
+      stats.total++;
+    } else if (name || phone) {
+      stats.total++;
+    }
+  }
+
+  for (let i = values.length - 1; i >= 1; i--) {
+    const row = values[i];
+    const name = String(row[1] || "").trim();
+    const rawBlood = row[3];
+    const photoData = row[7] || "";
+
+    if (name && name.toLowerCase() !== "name" && name !== "নাম") {
+      stats.latestDonor = {
+        name: name,
+        blood: cleanBlood(rawBlood) || rawBlood,
+        upozella: row[5] || "",
+        district: row[6] || "",
+        photo: photoData
+      };
+      break;
+    }
+  }
+
+  return stats;
+}
+
+function searchDonors(filters) {
+  filters = filters || {};
+  const selectedBlood = cleanBlood(filters.blood || "");
+  const selectedDistrict = normalizeText(filters.district || "");
+  const selectedUpozella = normalizeText(filters.upozella || "");
+  const onlyEligible = filters.onlyEligible === true;
+
+  if (!selectedBlood) {
+    return { count: 0, donors: [] };
+  }
+
+  const sheet = getDatabaseSheet();
+  const values = sheet.getDataRange().getDisplayValues();
+  if (values.length <= 1) return { count: 0, donors: [] };
+
+  const matched = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const id = String(row[0] || "").trim();
+    const name = String(row[1] || "").trim();
+    const phone = String(row[2] || "").trim();
+    const blood = cleanBlood(row[3]);
+    const gender = row[4] || "";
+    const upozella = normalizeText(row[5]);
+    const district = normalizeText(row[6]);
+    const photoData = row[7] || "";
+    const lastDate = row[8] || "";
+
+    if (name.toLowerCase() === "name" || id.toLowerCase() === "id") continue;
+    if (blood !== selectedBlood) continue;
+
+    if (selectedDistrict && district.indexOf(selectedDistrict) === -1 && selectedDistrict.indexOf(district) === -1) {
+      continue;
+    }
+
+    if (selectedUpozella && upozella.indexOf(selectedUpozella) === -1 && selectedUpozella.indexOf(upozella) === -1) {
+      continue;
+    }
+
+    const eligibility = checkDonorEligibility(lastDate, gender);
+
+    if (onlyEligible && !eligibility.isEligible) {
+      continue;
+    }
+
+    matched.push({
+      id: id || ("D" + String(matched.length + 1).padStart(4, "0")),
+      name: name || "Unnamed Donor",
+      mobile: phone || "N/A",
+      blood: blood || selectedBlood,
+      gender: gender,
+      upozella: row[5] || "",
+      district: row[6] || "",
+      photo: photoData,
+      lastDonationDate: lastDate,
+      eligibility: eligibility
+    });
+  }
+
+  return { count: matched.length, donors: matched };
+}
+
+function findDonorForUpdate(query) {
+  const q = normalizeText(query);
+  if (!q) return { found: false, message: "অনুগ্রহ করে নাম বা মোবাইল নম্বর লিখুন।" };
+
+  const sheet = getDatabaseSheet();
+  const values = sheet.getDataRange().getDisplayValues();
+  if (values.length <= 1) return { found: false, message: "ডাটাবেজে কোনো তথ্য নেই।" };
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const name = String(row[1] || "").trim();
+    const phone = String(row[2] || "").trim();
+
+    const normName = normalizeText(name);
+    const normPhone = normalizeText(phone);
+
+    if ((normPhone && normPhone.indexOf(q) !== -1) || (normName && normName.indexOf(q) !== -1)) {
+      return {
+        found: true,
+        donor: {
+          rowIndex: i + 1,
+          id: row[0] || "",
+          name: name,
+          mobile: phone,
+          blood: cleanBlood(row[3]) || row[3],
+          gender: row[4] || "Male",
+          upozella: row[5] || "",
+          district: row[6] || "",
+          photo: row[7] || "",
+          lastDonationDate: row[8] || ""
+        }
+      };
+    }
+  }
+
+  return { found: false, message: "এই নাম বা মোবাইল নম্বরে কোনো রক্তদাতার তথ্য পাওয়া যায়নি।" };
+}
+
+function updateDonor(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = getDatabaseSheet();
+    const rowIndex = parseInt(data.rowIndex, 10);
+    if (isNaN(rowIndex) || rowIndex <= 1) {
+      return { success: false, message: "ডোনারের তথ্য পাওয়া যায়নি।" };
+    }
+
+    if (data.name) sheet.getRange(rowIndex, 2).setValue(data.name);
+    if (data.mobile) sheet.getRange(rowIndex, 3).setValue(data.mobile);
+    if (data.blood) sheet.getRange(rowIndex, 4).setValue(data.blood);
+    if (data.gender) sheet.getRange(rowIndex, 5).setValue(data.gender);
+    if (data.upozella) sheet.getRange(rowIndex, 6).setValue(data.upozella);
+    if (data.district) sheet.getRange(rowIndex, 7).setValue(data.district);
+    
+    if (data.photoBase64 && data.photoBase64.indexOf("data:image") === 0) {
+      const id = sheet.getRange(rowIndex, 1).getValue() || "donor";
+      const photoUrl = uploadPhotoToDrive(data.photoBase64, id + "_" + (data.name || "donor") + ".jpg");
+      if (photoUrl) {
+        sheet.getRange(rowIndex, 8).setValue(photoUrl);
+      }
+    }
+
+    sheet.getRange(rowIndex, 9).setValue(data.lastDonationDate || "");
+
+    return { success: true, message: "রক্তদাতার তথ্য সফলভাবে আপডেট করা হয়েছে!" };
+  } catch (err) {
+    return { success: false, message: "ত্রুটি: " + err.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function saveDonor(data) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = getDatabaseSheet();
+    const values = sheet.getDataRange().getDisplayValues();
+    
+    let maxIdNum = 0;
+    for (let i = 1; i < values.length; i++) {
+      const idText = String(values[i][0] || "").trim();
+      const num = parseInt(idText.replace(/[^0-9]/g, ""), 10);
+      if (!isNaN(num) && num > maxIdNum) {
+        maxIdNum = num;
+      }
+    }
+    const nextIdNum = maxIdNum + 1;
+    const id = "D" + String(nextIdNum).padStart(4, "0");
+
+    let photoUrl = "";
+    if (data.photoBase64 && data.photoBase64.indexOf("data:image") === 0) {
+      photoUrl = uploadPhotoToDrive(data.photoBase64, id + "_" + (data.name || "donor") + ".jpg");
+      if (!photoUrl) photoUrl = data.photoBase64;
+    }
+
+    const row = [
+      id,
+      data.name || "",
+      data.mobile || "",
+      data.blood || "",
+      data.gender || "",
+      data.upozella || "",
+      data.district || "",
+      photoUrl,
+      data.lastDonationDate || ""
+    ];
+
+    sheet.appendRow(row);
+    return { 
+      success: true, 
+      message: "ডোনার সফলভাবে নিবন্ধিত হয়েছে!", 
+      id: id, 
+      latestName: data.name, 
+      latestBlood: data.blood, 
+      latestPhoto: photoUrl || data.photoBase64 || "" 
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// অভিযোগ ও পরামর্শ শিটে সংরক্ষণ এবং জিমেইলে পাঠানো
+function submitFeedback(data) {
+  try {
+    const sheet = getFeedbackSheet();
+    const timestamp = Utilities.formatDate(new Date(), "Asia/Dhaka", "dd/MM/yyyy hh:mm a");
+    const name = data.name || "Anonymous (নামহীন)";
+    const mobile = data.mobile || "N/A";
+    const type = data.type || "পরামর্শ";
+    const message = data.message || "";
+
+    if (!message) {
+      return { success: false, message: "অনুগ্রহ করে আপনার বক্তব্য লিখুন।" };
+    }
+
+    // ১. গুগল শিটের নতুন 'Feedback' ট্যাবে যোগ করা
+    sheet.appendRow([timestamp, name, mobile, type, message]);
+
+    // ২. অ্যাডমিনের জিমেইলে তাৎক্ষণিক নোটিফিকেশন পাঠানো
+    const recipientEmail = ADMIN_EMAIL || Session.getActiveUser().getEmail();
+    if (recipientEmail) {
+      const subject = "🩸 নতুন বার্তা: " + type + " - Blood Donation Web App";
+      const body = 
+        "আপনার ব্লাড ডোনেশন ওয়েব অ্যাপ থেকে একটি নতুন " + type + " এসেছে:\n\n" +
+        "------------------------------------\n" +
+        "তারিখ ও সময়: " + timestamp + "\n" +
+        "প্রেরকের নাম: " + name + "\n" +
+        "মোবাইল নম্বর: " + mobile + "\n" +
+        "বিষয়/ধরন: " + type + "\n" +
+        "বিস্তারিত বক্তব্য:\n" + message + "\n" +
+        "------------------------------------\n\n" +
+        "আপনার গুগল স্প্রেডশিটের 'Feedback' ট্যাবেও এই তথ্যটি সংরক্ষণ করা হয়েছে।";
+
+      MailApp.sendEmail(recipientEmail, subject, body);
+    }
+
+    return { success: true, message: "আপনার বার্তাটি সফলভাবে পাঠানো হয়েছে! ধন্যবাদ।" };
+  } catch (err) {
+    return { success: false, message: "বার্তা পাঠাতে সমস্যা হয়েছে: " + err.message };
+  }
+}
+
+function getHTML() {
+  var html = "";
+  html += "<!DOCTYPE html><html><head>";
+  html += '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">';
+  html += "<title>Blood Donation Group</title>";
+  html += "<style>";
+  html += "*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}";
+  html += "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#fdf5f5;color:#2c3e50;}";
+  
+  html += ".header{background:linear-gradient(135deg,#b70000,#7a0000);color:#fff;padding:22px 15px 44px 15px;text-align:center;position:relative;overflow:hidden;box-shadow:0 4px 15px rgba(183,0,0,0.3);}";
+  html += ".header h1{margin:0;font-size:22px;font-weight:800;letter-spacing:0.5px;}";
+  html += ".header p{margin:4px 0 0 0;font-size:12px;opacity:0.9;}";
+  html += ".blood-drop{position:absolute;background:#ff4d4d;border-radius:0 50% 50% 50%;transform:rotate(45deg);opacity:0.6;animation:dropFall linear infinite;}";
+  html += ".d1{width:16px;height:16px;left:10%;top:-20px;animation-duration:3.2s;animation-delay:0s;}";
+  html += ".d2{width:22px;height:22px;left:30%;top:-20px;animation-duration:4.5s;animation-delay:1.2s;}";
+  html += ".d3{width:14px;height:14px;left:55%;top:-20px;animation-duration:3.8s;animation-delay:0.5s;}";
+  html += ".d4{width:20px;height:20px;left:78%;top:-20px;animation-duration:4s;animation-delay:1.8s;}";
+  html += ".d5{width:15px;height:15px;left:90%;top:-20px;animation-duration:3.5s;animation-delay:0.8s;}";
+  html += "@keyframes dropFall{0%{top:-20px;opacity:0.8;transform:rotate(45deg) translateY(0);}100%{top:130px;opacity:0;transform:rotate(45deg) translateY(60px);}}";
+
+  html += ".container{padding:0 12px;max-width:960px;margin:-25px auto 25px auto;position:relative;z-index:3;}";
+  html += ".card{background:#ffffff;padding:16px;margin-bottom:14px;border-radius:14px;box-shadow:0 3px 14px rgba(0,0,0,0.06);border:1px solid #f2dede;}";
+  html += ".card h3{margin:0 0 10px 0;font-size:16px;color:#a00000;display:flex;align-items:center;gap:6px;}";
+
+  html += ".total-box{background:linear-gradient(135deg,#c90000,#8f0000);color:#fff;padding:12px;border-radius:10px;text-align:center;font-weight:bold;margin-bottom:12px;}";
+  html += ".total-box b{display:block;font-size:26px;}";
+  html += ".bg-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;text-align:center;}";
+  html += ".bg-item{background:#fff3f3;border:1px solid #fbd0d0;padding:8px 2px;border-radius:8px;}";
+  html += ".bg-item span{display:block;font-size:12px;font-weight:bold;color:#a00000;}";
+  html += ".bg-item b{font-size:16px;color:#333;}";
+
+  html += ".welcome-banner-green{height:2in;width:100%;border-radius:14px;background:#008000;margin-bottom:14px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;padding:10px 20px;color:#ffffff;box-shadow:0 5px 15px rgba(0,128,0,0.3);box-sizing:border-box;position:relative;overflow:hidden;}";
+  html += ".welcome-avatar-wrap{width:78px;height:78px;min-width:78px;border-radius:50%;overflow:hidden;border:3.5px solid #ffeb3b;box-shadow:0 0 15px rgba(255,235,59,0.8);background:#e8f5e9;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:15px;}";
+  html += ".welcome-avatar-wrap img{width:100%;height:100%;object-fit:cover;display:block;}";
+  html += ".welcome-icon-default{font-size:42px;}";
+  html += ".welcome-text-box{flex-grow:1;text-align:center;padding-right:15px;}";
+  html += ".welcome-text-box h4{margin:0;font-size:18px;font-weight:800;color:#ffffff;line-height:1.3;}";
+  html += ".welcome-text-box p{margin:5px 0 0 0;font-size:14px;color:#ffeb3b;font-weight:700;}";
+
+  html += ".banner-carousel{position:relative;height:4in;width:100%;border-radius:16px;overflow:hidden;box-shadow:0 6px 20px rgba(229,45,39,0.3);margin-bottom:16px;background:#9b0000;}";
+  html += ".carousel-slide{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;visibility:hidden;transition:opacity 0.7s ease-in-out, visibility 0.7s;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:20px;text-align:center;color:#fff;box-sizing:border-box;}";
+  html += ".carousel-slide.active{opacity:1;visibility:visible;}";
+  
+  html += ".slide-bg-img{background:linear-gradient(rgba(150,0,0,0.7), rgba(90,0,0,0.85)), url('https://images.unsplash.com/photo-1615461066841-6116e61058f4?auto=format&fit=crop&w=1000&q=80') center/cover no-repeat;}";
+  html += ".slide-bg-red{background:linear-gradient(135deg, #a30000, #730000);}";
+  html += ".slide-bg-maroon{background:linear-gradient(135deg, #8a0404, #570000);}";
+
+  html += ".slide-content{max-width:650px;}";
+  html += ".slide-title{font-size:20px;font-weight:800;margin-bottom:8px;letter-spacing:0.5px;}";
+  html += ".slide-info{font-size:14px;line-height:1.6;opacity:0.95;text-align:left;display:inline-block;}";
+  html += ".slide-info li{margin-bottom:4px;}";
+
+  html += ".content-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}";
+
+  html += "input,select,textarea{width:100%;padding:11px;margin:5px 0 10px 0;border:1.5px solid #e0e0e0;border-radius:8px;font-size:14px;background:#fafafa;font-family:inherit;}";
+  html += "input:focus,select:focus,textarea:focus{border-color:#b30000;outline:none;background:#fff;}";
+  html += "label{font-weight:600;font-size:13px;color:#444;}";
+
+  html += "button{width:100%;padding:13px;border:none;border-radius:8px;font-size:15px;font-weight:bold;cursor:pointer;}";
+  html += ".search-btn{background:linear-gradient(135deg,#c90000,#a00000);color:#fff;}";
+  html += ".save-btn{background:linear-gradient(135deg,#198754,#12663e);color:#fff;margin-top:5px;}";
+  html += ".find-update-btn{background:linear-gradient(135deg,#0d6efd,#0a58ca);color:#fff;margin-top:2px;}";
+  html += ".feedback-btn{background:linear-gradient(135deg,#d9534f,#c9302c);color:#fff;margin-top:5px;}";
+
+  html += ".searchGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}";
+  html += ".full{grid-column:1/-1;}";
+  html += ".badge-box{background:#fbeae8;border:1.5px solid #f5c2bd;color:#b30000;padding:12px;border-radius:9px;text-align:center;font-weight:bold;margin-top:10px;font-size:14px;display:none;}";
+  
+  html += ".result{padding:12px;border-bottom:1px solid #f0f0f0;background:#fff;border-radius:10px;margin-top:8px;border:1px solid #f5ecec;display:flex;gap:12px;align-items:center;}";
+  html += ".avatar-wrap{width:56px;height:56px;min-width:56px;border-radius:50%;overflow:hidden;border:2px solid #b30000;background:#ffebeb;display:flex;align-items:center;justify-content:center;}";
+  html += ".donor-avatar{width:100%;height:100%;object-fit:cover;display:block;}";
+  html += ".default-avatar{font-size:28px;}";
+  html += ".donor-info{flex-grow:1;}";
+  html += ".blood-badge{background:#b30000;color:#fff;font-size:12px;padding:3px 8px;border-radius:20px;font-weight:bold;}";
+
+  html += ".badge-ready{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:bold;display:inline-block;}";
+  html += ".badge-waiting{background:#fff3e0;color:#e65100;border:1px solid #ffcc80;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:bold;display:inline-block;}";
+
+  html += ".checkbox-wrap{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:13px;font-weight:bold;color:#1e7e34;cursor:pointer;}";
+  html += ".checkbox-wrap input{width:auto;margin:0;}";
+
+  html += ".resultActions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}";
+  html += ".resultActions button{padding:9px;font-size:13px;border-radius:6px;}";
+  html += ".call{background:#198754;color:#fff;}";
+  html += ".whatsapp{background:#25D366;color:#fff;}";
+  html += ".loading{text-align:center;padding:14px;color:#777;}";
+  html += ".empty{text-align:center;padding:15px;color:#777;}";
+
+  html += ".preview-box{display:none;align-items:center;gap:10px;margin-bottom:10px;background:#f3fbf6;padding:8px 12px;border-radius:8px;border:1px dashed #28a745;}";
+  html += ".preview-img{width:46px;height:46px;border-radius:50%;object-fit:cover;border:2px solid #28a745;}";
+  html += ".preview-text{font-size:13px;color:#1e7e34;font-weight:600;}";
+
+  html += ".update-card-style{background:#f8faff;border:1.5px solid #cfe2ff;border-radius:14px;padding:16px;margin-top:16px;}";
+  html += ".update-card-style h3{color:#0d6efd;margin:0 0 10px 0;font-size:16px;display:flex;align-items:center;gap:6px;}";
+  html += ".update-form-box{display:none;margin-top:14px;padding-top:14px;border-top:1.5px dashed #b6d4fe;}";
+
+  // অভিযোগ ও পরামর্শ বক্সের ডিজাইন
+  html += ".feedback-card{background:#fffaf0;border:1.5px solid #ffeeba;border-radius:14px;padding:16px;margin-top:16px;}";
+  html += ".feedback-card h3{color:#b70000;margin:0 0 10px 0;font-size:16px;display:flex;align-items:center;gap:6px;}";
+
+  html += ".footer-blue-card{background:linear-gradient(135deg, #0d47a1, #1976d2);color:#ffffff;padding:16px 20px;border-radius:12px;text-align:center;margin-top:20px;font-size:14px;font-weight:700;letter-spacing:0.5px;box-shadow:0 4px 15px rgba(13,71,161,0.25);border:1px solid #42a5f5;display:flex;align-items:center;justify-content:center;gap:8px;}";
+
+  html += "@media(max-width:768px){.content-grid{grid-template-columns:1fr;}.bg-grid{grid-template-columns:repeat(4,1fr);}.slide-title{font-size:17px;}.slide-info{font-size:12px;}.welcome-text-box h4{font-size:15px;}.welcome-text-box p{font-size:12px;}.welcome-avatar-wrap{width:64px;height:64px;min-width:64px;margin-right:10px;}.welcome-text-box{padding-right:0;}}";
+  html += "</style></head><body>";
+
+  html += '<div class="header">';
+  html += '<h1>🩸 Blood Donation Group</h1>';
+  html += '<p>রক্তদানে এগিয়ে আসুন, জীবন বাঁচান</p>';
+  html += '<div class="blood-drop d1"></div><div class="blood-drop d2"></div><div class="blood-drop d3"></div><div class="blood-drop d4"></div><div class="blood-drop d5"></div>';
+  html += '</div>';
+
+  html += '<div class="container">';
+
+  // ওয়েলকাম ব্যানার
+  html += '<div class="welcome-banner-green" id="topWelcomeBanner">';
+  html += '<div id="bannerAvatarSlot" class="welcome-avatar-wrap"><div class="welcome-icon-default">🩸</div></div>';
+  html += '<div class="welcome-text-box">';
+  html += '<h4 id="welcomeTitle">Congratulations to Blood Donor Family!</h4>';
+  html += '<p id="welcomeDesc">Welcome to Blood Donor Family!</p>';
+  html += '</div>';
+  html += '</div>';
+
+  // ব্যানার ক্যারোজেল
+  html += '<div class="banner-carousel" id="mainBannerCarousel">';
+  html += '<div class="carousel-slide slide-bg-img active" id="slide1">';
+  html += '<div class="slide-content">';
+  html += '<div style="font-size:42px;margin-bottom:6px;">🩸</div>';
+  html += '<div class="slide-title">এক ব্যাগ রক্ত, একটি নতুন জীবন</div>';
+  html += '<p style="margin:4px 0 0 0;font-size:15px;">আপনার রক্তদানে হাসবে মুমূর্ষু রোগী, বাঁচবে একটি পরিবার। রক্তদানে ভয় নয়, জাগ্রত হোক মানবতা।</p>';
+  html += '</div></div>';
+
+  html += '<div class="carousel-slide slide-bg-red" id="slide2">';
+  html += '<div class="slide-content">';
+  html += '<div class="slide-title">🌿 নিয়মিত রক্তদানের স্বাস্থ্য উপকারিতা</div>';
+  html += '<ul class="slide-info">';
+  html += '<li>❤️ হার্ট অ্যাটাক এবং স্ট্রোকের ঝুঁকি উল্লেখযোগ্য হারে কমায়।</li>';
+  html += '<li>🧬 শরীরে নতুন লোহিত রক্তকণিকা (RBC) তৈরিতে সাহায্য করে।</li>';
+  html += '<li>🩺 রক্তদানের আগে বিনামূল্যে প্রয়োজনীয় প্রাথমিক স্বাস্থ্য পরীক্ষা হয়।</li>';
+  html += '<li>🔥 অতিরিক্ত ক্যালোরি ও ক্ষতিকর কোলেস্টেরল নিয়ন্ত্রণে থাকে।</li>';
+  html += '</ul>';
+  html += '</div></div>';
+
+  html += '<div class="carousel-slide slide-bg-maroon" id="slide3">';
+  html += '<div class="slide-content">';
+  html += '<div class="slide-title">⚠️ রক্তদানের জরুরি নিয়মাবলী</div>';
+  html += '<ul class="slide-info">';
+  html += '<li>✅ <b>কারা দিতে পারবেন:</b> বয়স ১৮ থেকে ৬০ বছর এবং ওজন কমপক্ষে ৪৫-৫০ কেজি।</li>';
+  html += '<li>⏱️ <b>রক্তদানের বিরতি:</b> পুরুষ ৯০ দিন এবং নারী ১২০ দিন পর পর রক্ত দিতে পারেন।</li>';
+  html += '<li>❌ <b>কারা দিতে পারবেন না:</b> জন্ডিস, হেপাটাইটিস-বি/সি, অ্যানিমিয়া বা অ্যান্টিবায়োটিক সেবনকারী।</li>';
+  html += '<li>🤰 গর্ভবতী বা স্তন্যদানকারী মায়েদের সাময়িকভাবে রক্তদান নিষেধ।</li>';
+  html += '</ul>';
+  html += '</div></div>';
+  html += '</div>';
+
+  // ড্যাশবোর্ড
+  html += '<div class="card">';
+  html += '<h3>📊 ডোনার ড্যাশবোর্ড (Dashboard)</h3>';
+  html += '<div class="total-box"><b id="dashTotal">0</b>মোট নিবন্ধিত ডোনার</div>';
+  html += '<div class="bg-grid">';
+  html += '<div class="bg-item"><span>A+</span><b id="bg-Aplus">0</b></div>';
+  html += '<div class="bg-item"><span>A-</span><b id="bg-Aminus">0</b></div>';
+  html += '<div class="bg-item"><span>B+</span><b id="bg-Bplus">0</b></div>';
+  html += '<div class="bg-item"><span>B-</span><b id="bg-Bminus">0</b></div>';
+  html += '<div class="bg-item"><span>AB+</span><b id="bg-ABplus">0</b></div>';
+  html += '<div class="bg-item"><span>AB-</span><b id="bg-ABminus">0</b></div>';
+  html += '<div class="bg-item"><span>O+</span><b id="bg-Oplus">0</b></div>';
+  html += '<div class="bg-item"><span>O-</span><b id="bg-Ominus">0</b></div>';
+  html += '</div>';
+  html += '</div>';
+
+  // গ্রিড কন্টেন্ট
+  html += '<div class="content-grid">';
+
+  // ১. রক্তদাতা খুঁজুন কার্ড
+  html += '<div class="card">';
+  html += "<h3>🔍 রক্তদাতা খুঁজুন</h3>";
+  html += '<div class="searchGrid">';
+  html += '<div><label>Blood Group *</label>';
+  html += '<select id="searchBlood">';
+  html += '<option value="">রক্তের গ্রুপ নির্বাচন</option>';
+  html += '<option value="A+">A+</option><option value="A-">A-</option>';
+  html += '<option value="B+">B+</option><option value="B-">B-</option>';
+  html += '<option value="AB+">AB+</option><option value="AB-">AB-</option>';
+  html += '<option value="O+">O+</option><option value="O-">O-</option>';
+  html += '</select></div>';
+  html += '<div><label>District (জেলা)</label>';
+  html += '<select id="searchDistrict" onchange="updateUpozellaDropdown(\'searchDistrict\', \'searchUpozella\', true)">';
+  html += '<option value="">সব জেলা</option>';
+  html += '</select></div>';
+  html += '<div class="full"><label>Upozella (উপজেলা)</label>';
+  html += '<select id="searchUpozella"><option value="">সব উপজেলা</option></select></div>';
+  html += '</div>';
+  
+  html += '<label class="checkbox-wrap">';
+  html += '<input type="checkbox" id="onlyEligibleCheck"> <span>🟢 শুধুমাত্র প্রস্তুত রক্তদাতাদের দেখান</span>';
+  html += '</label>';
+
+  html += '<button class="search-btn" onclick="executeSearch()">🔍 SEARCH DONORS</button>';
+  html += '<div id="countBadge" class="badge-box"></div>';
+  html += '<div id="results"></div>';
+  html += '</div>';
+
+  // ২. ডোনার নিবন্ধন ফর্ম
+  html += '<div class="card">';
+  html += "<h3>➕ নতুন ডোনার নিবন্ধন</h3>";
+  html += "<label>Full Name (নাম) *</label><input id=\"name\" placeholder=\"ডোনারের পুরো নাম\">";
+  html += "<label>Mobile Number (মোবাইল নম্বর) *</label><input id=\"mobile\" type=\"tel\" placeholder=\"018XXXXXXXX\">";
+  html += "<label>Blood Group (রক্তের গ্রুপ) *</label>";
+  html += '<select id="blood"><option value="">রক্তের গ্রুপ নির্বাচন করুন</option><option value="A+">A+</option><option value="A-">A-</option><option value="B+">B+</option><option value="B-">B-</option><option value="AB+">AB+</option><option value="AB-">AB-</option><option value="O+">O+</option><option value="O-">O-</option></select>';
+  html += "<label>Gender (লিঙ্গ)</label>";
+  html += '<select id="gender"><option value="">নির্বাচন করুন</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>';
+  html += "<label>District (জেলা) *</label>";
+  html += '<select id="district" onchange="updateUpozellaDropdown(\'district\', \'upozella\', false)"><option value="">জেলা নির্বাচন করুন</option></select>';
+  html += "<label>Upozella (উপজেলা) *</label>";
+  html += '<select id="upozella"><option value="">আগে জেলা নির্বাচন করুন</option></select>';
+  
+  html += "<label>Last Blood Donation Date (সর্বশেষ রক্তদানের তারিখ - ঐচ্ছিক)</label>";
+  html += "<input id=\"lastDonationDate\" type=\"date\">";
+
+  html += "<label>Donor Photo (ছবি বা সেলফি)</label><input id=\"photoFile\" type=\"file\" accept=\"image/*\" onchange=\"handlePhotoPreview(this, 'previewThumb', 'photoPreviewBox')\">";
+  
+  html += '<div id="photoPreviewBox" class="preview-box">';
+  html += '<img id="previewThumb" class="preview-img" src="">';
+  html += '<div class="preview-text">✓ ছবি প্রস্তুত হয়েছে</div>';
+  html += '</div>';
+
+  html += '<button class="save-btn" id="saveBtn" onclick="saveDonor()">💾 SAVE DONOR</button>';
+  html += "</div>";
+
+  html += "</div>";
+
+  // ৩. তথ্য ও তারিখ আপডেট কার্ড
+  html += '<div class="update-card-style">';
+  html += '<h3>🔄 রক্তদাতার তথ্য ও তারিখ আপডেট (Update Information)</h3>';
+  html += '<p style="font-size:13px;color:#555;margin:0 0 10px 0;">রক্তদানের পর তারিখ বা যেকোনো তথ্য আপডেট করতে আপনার নিবন্ধিত নাম বা মোবাইল নম্বর দিয়ে খুঁজুন:</p>';
+  html += '<div style="display:flex;gap:8px;">';
+  html += '<input id="updateSearchQuery" placeholder="নাম অথবা মোবাইল নম্বর লিখুন..." style="margin:0;">';
+  html += '<button class="find-update-btn" id="searchUpdateBtn" onclick="searchForUpdate()" style="width:130px;white-space:nowrap;">🔎 খুঁজুন</button>';
+  html += '</div>';
+  html += '<div id="updateSearchMsg" style="font-size:13px;margin-top:8px;font-weight:600;"></div>';
+
+  html += '<div id="updateFormContainer" class="update-form-box">';
+  html += '<input type="hidden" id="editRowIndex">';
+  html += '<label>Full Name (নাম)</label><input id="editName">';
+  html += '<label>Mobile Number (মোবাইল নম্বর)</label><input id="editMobile" type="tel">';
+  html += '<label>Blood Group (রক্তের গ্রুপ)</label>';
+  html += '<select id="editBlood"><option value="A+">A+</option><option value="A-">A-</option><option value="B+">B+</option><option value="B-">B-</option><option value="AB+">AB+</option><option value="AB-">AB-</option><option value="O+">O+</option><option value="O-">O-</option></select>';
+  html += '<label>Gender (লিঙ্গ)</label>';
+  html += '<select id="editGender"><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>';
+  html += '<label>District (জেলা)</label>';
+  html += '<select id="editDistrict" onchange="updateUpozellaDropdown(\'editDistrict\', \'editUpozella\', false)"></select>';
+  html += '<label>Upozella (উপজেলা)</label>';
+  html += '<select id="editUpozella"></select>';
+  html += '<label style="color:#b70000;"><b>📅 শেষ রক্তদানের তারিখ (রক্ত দিলে এই তারিখ আপডেট করুন)</b></label>';
+  html += '<input id="editLastDonationDate" type="date">';
+  html += '<label>ছবি পরিবর্তন করতে চাইলে নির্বাচন করুন (ঐচ্ছিক)</label><input id="editPhotoFile" type="file" accept="image/*" onchange="handlePhotoPreview(this, \'editPreviewThumb\', \'editPhotoPreviewBox\')">';
+  html += '<div id="editPhotoPreviewBox" class="preview-box"><img id="editPreviewThumb" class="preview-img" src=""><div class="preview-text">✓ নতুন ছবি প্রস্তুত</div></div>';
+  html += '<button class="save-btn" id="updateSubmitBtn" onclick="submitDonorUpdate()" style="margin-top:10px;">💾 তথ্য আপডেট করুন</button>';
+  html += '</div>';
+  html += '</div>';
+
+  // ৪. অভিযোগ ও পরামর্শ বক্স (Feedback & Suggestion Box)
+  html += '<div class="feedback-card">';
+  html += '<h3>📢 অভিযোগ ও পরামর্শ বক্স (Feedback & Complaint)</h3>';
+  html += '<p style="font-size:13px;color:#666;margin:0 0 10px 0;">আমাদের সেবা উন্নত করতে বা কোনো অভিযোগ থাকলে জানান। আপনার বার্তা সরাসরি অ্যাডমিনের কাছে পৌঁছে যাবে:</p>';
+  html += '<div class="searchGrid">';
+  html += '<div><label>আপনার নাম (ঐচ্ছিক)</label><input id="fbName" placeholder="আপনার নাম লিখুন"></div>';
+  html += '<div><label>মোবাইল নম্বর (ঐচ্ছিক)</label><input id="fbMobile" type="tel" placeholder="01XXXXXXXXX"></div>';
+  html += '</div>';
+  html += '<label>বিষয় / ক্যাটাগরি</label>';
+  html += '<select id="fbType">';
+  html += '<option value="পরামর্শ (Suggestion)">💡 পরামর্শ (Suggestion)</option>';
+  html += '<option value="অভিযোগ (Complaint)">⚠️ অভিযোগ (Complaint)</option>';
+  html += '<option value="ভুল তথ্য সংশোধন (Correction)">📝 ভুল তথ্য সংশোধন (Correction)</option>';
+  html += '<option value="অন্যান্য (Other)">💬 অন্যান্য (Other)</option>';
+  html += '</select>';
+  html += '<label>বিস্তারিত লিখুন *</label>';
+  html += '<textarea id="fbMessage" rows="3" placeholder="আপনার অভিযোগ বা মূল্যবান পরামর্শ বিস্তারিত লিখুন..."></textarea>';
+  html += '<button class="feedback-btn" id="fbSubmitBtn" onclick="submitFeedbackForm()">📨 বার্তা পাঠিয়ে দিন</button>';
+  html += '</div>';
+
+  html += '<div class="footer-blue-card">🛡️ All data reserved by apps creator JESMUL HASAN</div>';
+
+  html += "</div>";
+
+  html += "<script>";
+  html += 'const DISTRICT_DATA = {';
+  html += '"Dhaka": ["Dhanmondi", "Mirpur", "Mohammadpur", "Gulshan", "Banani", "Uttara", "Savar", "Keraniganj", "Dhamrai", "Tejgaon", "Badda", "Motijheel", "Jatrabari", "Lalbagh", "Nawabganj", "Dohar"],';
+  html += '"Gazipur": ["Gazipur Sadar", "Kaliakair", "Kaliganj", "Kapasia", "Sreepur", "Tongi"],';
+  html += '"Narayanganj": ["Narayanganj Sadar", "Araihazar", "Bandar", "Rupganj", "Sonargaon", "Siddhirganj", "Fatullah"],';
+  html += '"Tangail": ["Tangail Sadar", "Basail", "Bhuapur", "Delduar", "Ghatail", "Gopalpur", "Madhupur", "Mirzapur", "Nagarpur", "Sakhipur", "Dhanbari", "Kalihati"],';
+  html += '"Kishoreganj": ["Kishoreganj Sadar", "Austagram", "Bajitpur", "Bhairab", "Hossainpur", "Itna", "Karimganj", "Katiadi", "Kuliarchar", "Mithamain", "Nikli", "Pakundia", "Tarail"],';
+  html += '"Manikganj": ["Manikganj Sadar", "Singair", "Shivalaya", "Saturia", "Harirampur", "Ghior", "Daulatpur"],';
+  html += '"Munshiganj": ["Munshiganj Sadar", "Tongibari", "Sirajdikhan", "Lohajang", "Sreenagar", "Gazaria"],';
+  html += '"Narsingdi": ["Narsingdi Sadar", "Belabo", "Monohardi", "Palash", "Raipura", "Shibpur"],';
+  html += '"Faridpur": ["Faridpur Sadar", "Boalmari", "Alfadanga", "Madhukhali", "Bhanga", "Nagarkanda", "Charbhadrasan", "Sadarpur", "Saltha"],';
+  html += '"Gopalganj": ["Gopalganj Sadar", "Kashiani", "Kotalipara", "Muksudpur", "Tungipara"],';
+  html += '"Madaripur": ["Madaripur Sadar", "Shibchar", "Kalkini", "Rajoir", "Dasar"],';
+  html += '"Rajbari": ["Rajbari Sadar", "Goalanda", "Pangsha", "Baliakandi", "Kalukhali"],';
+  html += '"Shariatpur": ["Shariatpur Sadar", "Damudya", "Naria", "Janjira", "Bhedarganj", "Gosairhat"],';
+  html += '"Chittagong": ["Patiya", "Mirsharai", "Hathazari", "Boalkhali", "Raozan", "Rangunia", "Anwara", "Chandanaish", "Banshkhali", "Lohagara", "Satkania", "Sitakunda", "Fatikchhari", "Karnaphuli", "Kotwali", "Panchlaish", "Halishahar", "Pahartali", "Double Mooring", "Khulshi", "Bayazid", "Bakalia"],';
+  html += '"Cox\'s Bazar": ["Cox\'s Bazar Sadar", "Chakaria", "Teknaf", "Ukhia", "Ramu", "Pekua", "Maheshkhali", "Kutubdia", "Eidgaon"],';
+  html += '"Comilla": ["Comilla Sadar", "Comilla Sadar Dakshin", "Laksam", "Debidwar", "Burichang", "Chandina", "Chauddagram", "Daudkandi", "Homna", "Muradnagar", "Barura", "Brahmanpara", "Monohargonj", "Meghna", "Titas", "Lalmai"],';
+  html += '"Feni": ["Feni Sadar", "Daganbhuiyan", "Chhagalnaiya", "Parshuram", "Fulgazi", "Sonagazi"],';
+  html += '"Brahmanbaria": ["Brahmanbaria Sadar", "Ashuganj", "Nasirnagar", "Nabinagar", "Sarail", "Kasba", "Akhaura", "Bancharampur", "Bijoynagar"],';
+  html += '"Chandpur": ["Chandpur Sadar", "Faridganj", "Haimchar", "Haziganj", "Kachua", "Matlab Dakshin", "Matlab Uttar", "Shahrasti"],';
+  html += '"Noakhali": ["Noakhali Sadar", "Begumganj", "Chatkhil", "Companiganj", "Hatiya", "Senbagh", "Subarnachar", "Kabirhat", "Sonaimuri"],';
+  html += '"Lakshmipur": ["Lakshmipur Sadar", "Raipur", "Ramganj", "Ramgati", "Kamalnagar"],';
+  html += '"Khagrachhari": ["Khagrachhari Sadar", "Dighinala", "Panchhari", "Mahalchhari", "Matiranga", "Manikchhari", "Ramgarh", "Guimara"],';
+  html += '"Rangamati": ["Rangamati Sadar", "Kaptai", "Kawkhali", "Baghaichhari", "Barkal", "Langadu", "Rajasthali", "Belaichhari", "Juraichhari", "Naniarchar"],';
+  html += '"Bandarban": ["Bandarban Sadar", "Ruma", "Thanchi", "Lama", "Alikadam", "Rowangchhari", "Naikhongchhari"],';
+  html += '"Rajshahi": ["Boalia", "Motihar", "Rajpara", "Shah Mokhdum", "Bagha", "Charghat", "Durgapur", "Godagari", "Paba", "Puthia", "Tanore", "Bagmara", "Mohanpur"],';
+  html += '"Bogra": ["Bogra Sadar", "Adamdighi", "Dhunat", "Dhupchanchia", "Gabtali", "Kahaloo", "Nandigram", "Sariakandi", "Shajahanpur", "Sherpur", "Shibganj", "Sonatala"],';
+  html += '"Pabna": ["Pabna Sadar", "Atgharia", "Bera", "Bhangura", "Chatmohar", "Faridpur", "Ishwardi", "Santhia", "Sujanagar"],';
+  html += '"Sirajganj": ["Sirajganj Sadar", "Belkuchi", "Chauhali", "Kamarkhanda", "Kazipur", "Rayganj", "Shahjadpur", "Tarash", "Ullapara"],';
+  html += '"Naogaon": ["Naogaon Sadar", "Atrai", "Badalgachhi", "Dhamoirhat", "Manda", "Mohadevpur", "Niamatpur", "Patnitala", "Porsha", "Raninagar", "Sapahar"],';
+  html += '"Natore": ["Natore Sadar", "Bagatipara", "Baraigram", "Gurudaspur", "Lalpur", "Singra", "Naldanga"],';
+  html += '"Chapai Nawabganj": ["Chapai Nawabganj Sadar", "Bholahat", "Gomastapur", "Nachole", "Shibganj"],';
+  html += '"Joypurhat": ["Joypurhat Sadar", "Akkelpur", "Kalai", "Khetlal", "Panchbibi"],';
+  html += '"Khulna": ["Khulna Sadar", "Sonadanga", "Khalishpur", "Daulatpur", "Khan Jahan Ali", "Batiaghata", "Dacope", "Dumuria", "Dighalia", "Koyra", "Paikgachha", "Phultala", "Rupsha", "Terokhada"],';
+  html += '"Jessore": ["Jessore Sadar", "Abhaynagar", "Bagherpara", "Chaugachha", "Jhikargachha", "Keshabpur", "Manirampur", "Sharsha"],';
+  html += '"Satkhira": ["Satkhira Sadar", "Assasuni", "Debhata", "Kalaroa", "Kaliganj", "Shyamnagar", "Tala"],';
+  html += '"Kushtia": ["Kushtia Sadar", "Bheramara", "Daulatpur", "Khoksa", "Kumarkhali", "Mirpur"],';
+  html += '"Jhenaidah": ["Jhenaidah Sadar", "Harinakundu", "Kaliganj", "Kotchandpur", "Maheshpur", "Shailkupa"],';
+  html += '"Bagerhat": ["Bagerhat Sadar", "Chitalmari", "Fakirhat", "Kachua", "Mollahat", "Mongla", "Morrelganj", "Rampal", "Sarankhola"],';
+  html += '"Chuadanga": ["Chuadanga Sadar", "Alamdanga", "Damurhuda", "Jibannagar"],';
+  html += '"Magura": ["Magura Sadar", "Mohammadpur", "Shalikha", "Sreepur"],';
+  html += '"Meherpur": ["Meherpur Sadar", "Gangni", "Mujibnagar"],';
+  html += '"Narail": ["Narail Sadar", "Kalia", "Lohagara"],';
+  html += '"Barisal": ["Barisal Sadar", "Bakerganj", "Babuganj", "Wazirpur", "Banaripara", "Gournadi", "Agailjhara", "Mehendiganj", "Muladi", "Hizla"],';
+  html += '"Bhola": ["Bhola Sadar", "Burhanuddin", "Char Fasson", "Daulatkhan", "Lalmohan", "Manpura", "Tazumuddin"],';
+  html += '"Patuakhali": ["Patuakhali Sadar", "Bauphal", "Dashmina", "Galachipa", "Kalapara", "Mirzaganj", "Rangabali", "Dumki"],';
+  html += '"Pirojpur": ["Pirojpur Sadar", "Bhandaria", "Kawkhali", "Mathbaria", "Nazirpur", "Nesarabad (Swarupkati)", "Zianagar (Indurkani)"],';
+  html += '"Barguna": ["Barguna Sadar", "Amtali", "Bamna", "Betagi", "Patharghata", "Taltali"],';
+  html += '"Jhalokati": ["Jhalokati Sadar", "Kathalia", "Nalchity", "Rajapur"],';
+  html += '"Sylhet": ["Sylhet Sadar", "Beanibazar", "Golapganj", "Zakiganj", "Kanaighat", "Fenchuganj", "Balaganj", "Biswanath", "Companiganj", "Gowainghat", "Jaintiapur", "Dakshin Surma", "Osmani Nagar"],';
+  html += '"Moulvibazar": ["Moulvibazar Sadar", "Barlekha", "Juri", "Kamalganj", "Kulaura", "Rajnagar", "Sreemangal"],';
+  html += '"Habiganj": ["Habiganj Sadar", "Ajmiriganj", "Bahubal", "Baniyachong", "Chunarughat", "Lakhai", "Madhabpur", "Nabiganj", "Sayestaganj"],';
+  html += '"Sunamganj": ["Sunamganj Sadar", "Bishwamvarpur", "Chhatak", "Derai", "Dharampasha", "Dowarabazar", "Jagannathpur", "Jamalganj", "Sullah", "Tahirpur", "Dakshin Sunamganj", "Madhyanagar"],';
+  html += '"Rangpur": ["Rangpur Sadar", "Badarganj", "Gangachhara", "Kaunia", "Mithapukur", "Pirgachha", "Pirganj", "Taraganj"],';
+  html += '"Dinajpur": ["Dinajpur Sadar", "Birampur", "Birganj", "Biral", "Bochaganj", "Chirirbandar", "Phulbari", "Ghoraghat", "Hakimpur", "Kaharole", "Khansama", "Nawabganj", "Parbatipur"],';
+  html += '"Kurigram": ["Kurigram Sadar", "Bhurungamari", "Char Rajibpur", "Chilmari", "Phulbari", "Nageshwari", "Rajarhat", "Roumari", "Ulipur"],';
+  html += '"Gaibandha": ["Gaibandha Sadar", "Fulchhari", "Gobindaganj", "Palashbari", "Sadullapur", "Saghata", "Sundarganj"],';
+  html += '"Nilphamari": ["Nilphamari Sadar", "Dimla", "Domar", "Jaldhaka", "Kishoreganj", "Syedpur"],';
+  html += '"Lalmonirhat": ["Lalmonirhat Sadar", "Aditmari", "Kaliganj", "Hatibandha", "Patgram"],';
+  html += '"Thakurgaon": ["Thakurgaon Sadar", "Baliadangi", "Haripur", "Pirganj", "Ranisankail"],';
+  html += '"Panchagarh": ["Panchagarh Sadar", "Atwari", "Boda", "Debiganj", "Tetulia"],';
+  html += '"Mymensingh": ["Mymensingh Sadar", "Muktagachha", "Valuka", "Trishal", "Gafargaon", "Phulpur", "Haluaghat", "Ishwarganj", "Nandail", "Dhobaura", "Fulbaria", "Gouripur", "Tara Khanda"],';
+  html += '"Jamalpur": ["Jamalpur Sadar", "Bakshiganj", "Dewanganj", "Islampur", "Madarganj", "Melandaha", "Sarishabari"],';
+  html += '"Netrokona": ["Netrokona Sadar", "Atpara", "Barhatta", "Durgapur", "Khaliajuri", "Kalmakanda", "Kendua", "Madan", "Mohanganj", "Purbadhala"],';
+  html += '"Sherpur": ["Sherpur Sadar", "Jhenaigati", "Nakla", "Nalitabari", "Sreebardi"]';
+  html += '};';
+
+  html += 'function populateDistricts(){';
+  html += 'var searchSelect = document.getElementById("searchDistrict");';
+  html += 'var regSelect = document.getElementById("district");';
+  html += 'var editSelect = document.getElementById("editDistrict");';
+  html += 'for(var dist in DISTRICT_DATA){';
+  html += 'var o1 = document.createElement("option"); o1.value = dist; o1.textContent = dist; searchSelect.appendChild(o1);';
+  html += 'var o2 = document.createElement("option"); o2.value = dist; o2.textContent = dist; regSelect.appendChild(o2);';
+  html += 'var o3 = document.createElement("option"); o3.value = dist; o3.textContent = dist; editSelect.appendChild(o3);';
+  html += '}}';
+
+  html += 'function updateUpozellaDropdown(distElemId, upoElemId, isSearch){';
+  html += 'var distVal = document.getElementById(distElemId).value;';
+  html += 'var upoSelect = document.getElementById(upoElemId);';
+  html += 'upoSelect.innerHTML = "";';
+  html += 'var defaultOption = document.createElement("option");';
+  html += 'defaultOption.value = "";';
+  html += 'defaultOption.textContent = isSearch ? "সব উপজেলা" : "উপজেলা নির্বাচন করুন";';
+  html += 'upoSelect.appendChild(defaultOption);';
+  html += 'if(distVal && DISTRICT_DATA[distVal]){';
+  html += 'DISTRICT_DATA[distVal].forEach(function(upo){';
+  html += 'var opt = document.createElement("option"); opt.value = upo; opt.textContent = upo; upoSelect.appendChild(opt);';
+  html += '});}}';
+
+  html += 'var currentSlideIndex = 1;';
+  html += 'var totalSlides = 3;';
+  html += 'var slideTimer = null;';
+
+  html += 'function showSlide(index){';
+  html += 'var slides = document.querySelectorAll(".carousel-slide");';
+  html += 'for(var s = 0; s < slides.length; s++){ slides[s].classList.remove("active"); }';
+  html += 'var target = document.getElementById("slide" + index);';
+  html += 'if(target) target.classList.add("active");';
+  html += '}';
+
+  html += 'function startSlideShow(){';
+  html += 'if(slideTimer) clearInterval(slideTimer);';
+  html += 'slideTimer = setInterval(function(){';
+  html += 'currentSlideIndex = (currentSlideIndex % totalSlides) + 1;';
+  html += 'showSlide(currentSlideIndex);';
+  html += '}, 3000);';
+  html += '}';
+
+  html += 'function getPhotoTag(photoUrl, className, fallbackSize){';
+  html += 'if(photoUrl && (photoUrl.indexOf("http") === 0 || photoUrl.indexOf("data:image") === 0)){';
+  html += 'return "<img class=\'"+className+"\' src=\'"+photoUrl+"\' onerror=\\"this.style.display=\'none\'; this.parentElement.innerHTML=\'<span style=font-size:"+fallbackSize+"px>🩸</span>\';\\">";';
+  html += '}return "<span style=\'font-size:"+fallbackSize+"px\'>🩸</span>";';
+  html += '}';
+
+  html += 'function populateWelcomeBanner(donor){';
+  html += 'if(!donor || !donor.name) return;';
+  html += 'var slot = document.getElementById("bannerAvatarSlot");';
+  html += 'slot.innerHTML = getPhotoTag(donor.photo, "", 38);';
+  html += 'document.getElementById("welcomeTitle").innerHTML = "🎉 Congratulations <span style=\\"color:#ffeb3b;\\">" + donor.name + "</span>";';
+  html += 'document.getElementById("welcomeDesc").innerHTML = "Welcome to Blood Donor family! 🩸 Blood Group: <b>" + (donor.blood || "") + "</b>";';
+  html += '}';
+
+  html += 'function loadDashboard(){';
+  html += 'google.script.run.withSuccessHandler(function(d){';
+  html += 'document.getElementById("dashTotal").innerText = d.total;';
+  html += 'document.getElementById("bg-Aplus").innerText = d.groups["A+"];';
+  html += 'document.getElementById("bg-Aminus").innerText = d.groups["A-"];';
+  html += 'document.getElementById("bg-Bplus").innerText = d.groups["B+"];';
+  html += 'document.getElementById("bg-Bminus").innerText = d.groups["B-"];';
+  html += 'document.getElementById("bg-ABplus").innerText = d.groups["AB+"];';
+  html += 'document.getElementById("bg-ABminus").innerText = d.groups["AB-"];';
+  html += 'document.getElementById("bg-Oplus").innerText = d.groups["O+"];';
+  html += 'document.getElementById("bg-Ominus").innerText = d.groups["O-"];';
+  html += 'if(d.latestDonor) populateWelcomeBanner(d.latestDonor);';
+  html += '}).getDashboardData();';
+  html += '}';
+
+  html += 'populateDistricts();';
+  html += 'startSlideShow();';
+  html += 'loadDashboard();';
+
+  html += 'function val(id){var e=document.getElementById(id);return e?e.value:"";}';
+
+  // সাধারণ সার্চ
+  html += "function executeSearch(){";
+  html += 'var blood=val("searchBlood");';
+  html += 'var district=val("searchDistrict");';
+  html += 'var upozella=val("searchUpozella");';
+  html += 'var onlyEligible = document.getElementById("onlyEligibleCheck").checked;';
+  html += 'var badge=document.getElementById("countBadge");';
+  html += 'var box=document.getElementById("results");';
+
+  html += 'if(!blood){alert("অনুগ্রহ করে একটি রক্তের গ্রুপ নির্বাচন করুন।");return;}';
+  html += 'badge.style.display="none";';
+  html += 'box.innerHTML="<div class=\\"loading\\">ডাটা খোঁজা হচ্ছে...</div>";';
+
+  html += "google.script.run.withSuccessHandler(function(res){";
+  html += 'badge.style.display="block";';
+  html += 'var locText = "";';
+  html += 'if(upozella && district){ locText = " (" + upozella.toUpperCase() + ", " + district.toUpperCase() + ")"; }';
+  html += 'else if(district){ locText = " (" + district.toUpperCase() + ")"; }';
+  html += 'else if(upozella){ locText = " (" + upozella.toUpperCase() + ")"; }';
+  html += 'badge.innerHTML="রক্তের গ্রুপ <b>" + blood + "</b> এর ফলাফল: <b>" + res.count + "</b> জন" + locText;';
+  html += 'box.innerHTML="";';
+  html += 'if(res.count===0){box.innerHTML="<div class=\\"empty\\">উক্ত ফিল্টারে কোনো ডোনার পাওয়া যায়নি।</div>";return;}';
+
+  html += "res.donors.forEach(function(d){";
+  html += 'var phone=d.mobile||"";';
+  html += 'var loc = (d.upozella ? d.upozella + ", " : "") + (d.district || "");';
+  html += 'var elig = d.eligibility || {isEligible: true, statusText: "🟢 এখনই দিতে পারবেন", badgeClass: "badge-ready"};';
+  html += 'var dateInfo = "";';
+
+  html += 'if(!elig.isEligible && elig.nextDateFormatted){';
+  html += 'dateInfo = "<div style=\\"font-size:11px;color:#c0392b;margin-top:3px;font-weight:600;\\">📅 পরবর্তী রক্তদান: " + elig.nextDateFormatted + " এর পর</div>";';
+  html += '} else if(d.lastDonationDate){';
+  html += 'dateInfo = "<div style=\\"font-size:11px;color:#27ae60;margin-top:3px;\\">✓ শেষ রক্তদান: " + d.lastDonationDate + "</div>";';
+  html += '}';
+  
+  html += 'var item = document.createElement("div");';
+  html += 'item.innerHTML = "<div class=\\"result\\">" +';
+  html += '"<div class=\\"avatar-wrap\\">"+getPhotoTag(d.photo, "donor-avatar", 26)+"</div>" +';
+  html += '"<div class=\\"donor-info\\">" +';
+  html += '"<div style=\\"display:flex;justify-content:space-between;align-items:center;\\">' +
+          '<b style=\\"font-size:15px;\\">"+d.name+"</b>' +
+          '<div><span class=\\"blood-badge\\">"+d.blood+"</span> <span class=\\""+elig.badgeClass+"\\">"+elig.statusText+"</span></div>' +
+          '</div>" +';
+  html += '"<div style=\\"margin-top:3px;font-size:13px;color:#555;\\">📱 "+phone+"</div>" +';
+  html += '"<div style=\\"font-size:12px;color:#777;margin-top:2px;\\">📍 "+(loc||"ঠিকানা দেওয়া নেই")+"</div>" +';
+  html += 'dateInfo +' ;
+  html += '"<div class=\\"resultActions\\"><button class=\\"call\\" onclick=\\"callNumber(\'"+phone+"\')\\">📞 Call</button><button class=\\"whatsapp\\" onclick=\\"openWhatsApp(\'"+phone+"\')\\">💬 WhatsApp</button></div>" +';
+  html += '"</div></div>";';
+  html += 'box.appendChild(item);';
+  html += "});";
+  html += "}).withFailureHandler(function(e){";
+  html += 'box.innerHTML="<div class=\\"empty\\">ত্রুটি: "+e.message+"</div>";';
+  html += "}).searchDonors({blood:blood,district:district,upozella:upozella,onlyEligible:onlyEligible});";
+  html += "}";
+
+  // আপডেট সেকশনের জন্য অনুসন্ধান
+  html += 'function searchForUpdate(){';
+  html += 'var q = val("updateSearchQuery");';
+  html += 'var msg = document.getElementById("updateSearchMsg");';
+  html += 'var container = document.getElementById("updateFormContainer");';
+  html += 'if(!q){ alert("অনুগ্রহ করে নাম বা মোবাইল নম্বর লিখুন।"); return; }';
+  html += 'msg.style.color = "#0d6efd"; msg.innerText = "ডাটা খোঁজা হচ্ছে...";';
+  html += 'container.style.display = "none";';
+
+  html += 'google.script.run.withSuccessHandler(function(res){';
+  html += 'if(!res.found){ msg.style.color = "#c0392b"; msg.innerText = res.message; return; }';
+  html += 'msg.style.color = "#198754"; msg.innerText = "✓ রক্তদাতার তথ্য পাওয়া গেছে!";';
+  html += 'var d = res.donor;';
+  html += 'document.getElementById("editRowIndex").value = d.rowIndex;';
+  html += 'document.getElementById("editName").value = d.name || "";';
+  html += 'document.getElementById("editMobile").value = d.mobile || "";';
+  html += 'document.getElementById("editBlood").value = d.blood || "A+";';
+  html += 'document.getElementById("editGender").value = d.gender || "Male";';
+  html += 'document.getElementById("editDistrict").value = d.district || "";';
+  html += 'updateUpozellaDropdown("editDistrict", "editUpozella", false);';
+  html += 'document.getElementById("editUpozella").value = d.upozella || "";';
+  html += 'document.getElementById("editLastDonationDate").value = d.lastDonationDate || "";';
+  html += 'editCompressedPhoto = "";';
+  html += 'document.getElementById("editPhotoPreviewBox").style.display = "none";';
+  html += 'container.style.display = "block";';
+  html += '}).withFailureHandler(function(e){';
+  html += 'msg.style.color = "#c0392b"; msg.innerText = "ত্রুটি: " + e.message;';
+  html += '}).findDonorForUpdate(q);';
+  html += '}';
+
+  // তথ্য আপডেট সাবমিট
+  html += 'var editCompressedPhoto = "";';
+  html += 'function submitDonorUpdate(){';
+  html += 'var data = {';
+  html += 'rowIndex: val("editRowIndex"),';
+  html += 'name: val("editName"),';
+  html += 'mobile: val("editMobile"),';
+  html += 'blood: val("editBlood"),';
+  html += 'gender: val("editGender"),';
+  html += 'district: val("editDistrict"),';
+  html += 'upozella: val("editUpozella"),';
+  html += 'lastDonationDate: val("editLastDonationDate"),';
+  html += 'photoBase64: editCompressedPhoto || ""';
+  html += '};';
+
+  html += 'if(!data.name || !data.mobile){ alert("নাম ও মোবাইল নম্বর দেওয়া আবশ্যক।"); return; }';
+  html += 'var btn = document.getElementById("updateSubmitBtn");';
+  html += 'btn.innerText = "আপডেট করা হচ্ছে..."; btn.disabled = true;';
+
+  html += 'google.script.run.withSuccessHandler(function(res){';
+  html += 'alert(res.message);';
+  html += 'btn.innerText = "💾 তথ্য আপডেট করুন"; btn.disabled = false;';
+  html += 'document.getElementById("updateSearchMsg").innerText = "✓ তথ্য সফলভাবে আপডেট হয়েছে!";';
+  html += 'loadDashboard();';
+  html += '}).withFailureHandler(function(e){';
+  html += 'alert("ত্রুটি: " + e.message);';
+  html += 'btn.innerText = "💾 তথ্য আপডেট করুন"; btn.disabled = false;';
+  html += '}).updateDonor(data);';
+  html += '}';
+
+  // অভিযোগ ও পরামর্শ সাবমিট হ্যান্ডলার
+  html += 'function submitFeedbackForm(){';
+  html += 'var msgText = val("fbMessage");';
+  html += 'if(!msgText.trim()){ alert("অনুগ্রহ করে আপনার বিস্তারিত বার্তাটি লিখুন।"); return; }';
+  html += 'var btn = document.getElementById("fbSubmitBtn");';
+  html += 'btn.innerText = "পাঠানো হচ্ছে..."; btn.disabled = true;';
+  html += 'var data = {';
+  html += 'name: val("fbName"),';
+  html += 'mobile: val("fbMobile"),';
+  html += 'type: val("fbType"),';
+  html += 'message: msgText';
+  html += '};';
+
+  html += 'google.script.run.withSuccessHandler(function(res){';
+  html += 'alert(res.message);';
+  html += 'btn.innerText = "📨 বার্তা পাঠিয়ে দিন"; btn.disabled = false;';
+  html += 'document.getElementById("fbName").value = "";';
+  html += 'document.getElementById("fbMobile").value = "";';
+  html += 'document.getElementById("fbMessage").value = "";';
+  html += '}).withFailureHandler(function(e){';
+  html += 'alert("ত্রুটি: " + e.message);';
+  html += 'btn.innerText = "📨 বার্তা পাঠিয়ে দিন"; btn.disabled = false;';
+  html += '}).submitFeedback(data);';
+  html += '}';
+
+  // ছবি প্রিভিউ
+  html += 'var selectedCompressedPhoto = "";';
+  html += 'function handlePhotoPreview(input, thumbId, boxId){';
+  html += 'if(input.files && input.files[0]){';
+  html += 'compressAndResizeImage(input.files[0], function(base64){';
+  html += 'if(thumbId === "editPreviewThumb"){ editCompressedPhoto = base64; } else { selectedCompressedPhoto = base64; }';
+  html += 'document.getElementById(thumbId).src = base64;';
+  html += 'document.getElementById(boxId).style.display = "flex";';
+  html += '});';
+  html += '} else {';
+  html += 'if(thumbId === "editPreviewThumb"){ editCompressedPhoto = ""; } else { selectedCompressedPhoto = ""; }';
+  html += 'document.getElementById(boxId).style.display = "none";';
+  html += '}}';
+
+  html += 'function compressAndResizeImage(file, callback){';
+  html += 'var reader = new FileReader();';
+  html += 'reader.onload = function(e){';
+  html += 'var img = new Image();';
+  html += 'img.onload = function(){';
+  html += 'var canvas = document.createElement("canvas");';
+  html += 'var max_size = 200;';
+  html += 'var width = img.width; var height = img.height;';
+  html += 'if(width > height){ if(width > max_size){ height = Math.round(height * (max_size / width)); width = max_size; } }';
+  html += 'else { if(height > max_size){ width = Math.round(width * (max_size / height)); height = max_size; } }';
+  html += 'canvas.width = width; canvas.height = height;';
+  html += 'var ctx = canvas.getContext("2d"); ctx.drawImage(img, 0, 0, width, height);';
+  html += 'callback(canvas.toDataURL("image/jpeg", 0.7));';
+  html += '}; img.src = e.target.result;';
+  html += '}; reader.readAsDataURL(file);';
+  html += '}';
+
+  // ডোনার সেভ
+  html += "function saveDonor(){";
+  html += 'var data={name:val("name"),mobile:val("mobile"),blood:val("blood"),gender:val("gender"),upozella:val("upozella"),district:val("district"),lastDonationDate:val("lastDonationDate")};';
+  html += 'if(!data.name||!data.mobile||!data.blood||!data.district||!data.upozella){alert("নাম, মোবাইল, উপজেলা, জেলা এবং রক্তের গ্রুপ অবশ্যই দিন।");return;}';
+  
+  html += 'var btn = document.getElementById("saveBtn");';
+  html += 'btn.innerText = "সংরক্ষণ করা হচ্ছে..."; btn.disabled = true;';
+  html += 'data.photoBase64 = selectedCompressedPhoto || "";';
+  html += 'sendSaveRequest(data);';
+  html += "}";
+
+  html += "function sendSaveRequest(data){";
+  html += "google.script.run.withSuccessHandler(function(res){";
+  html += 'alert(res.message);';
+  html += 'populateWelcomeBanner({name: res.latestName, blood: res.latestBlood, photo: res.latestPhoto});';
+  html += 'document.querySelectorAll("#name,#mobile,#photoFile,#lastDonationDate").forEach(function(x){x.value="";});';
+  html += 'selectedCompressedPhoto = "";';
+  html += 'document.getElementById("photoPreviewBox").style.display = "none";';
+  html += 'document.getElementById("saveBtn").innerText = "💾 SAVE DONOR"; document.getElementById("saveBtn").disabled = false;';
+  html += 'loadDashboard();';
+  html += "}).withFailureHandler(function(e){";
+  html += 'alert(e.message);';
+  html += 'document.getElementById("saveBtn").innerText = "💾 SAVE DONOR"; document.getElementById("saveBtn").disabled = false;';
+  html += "}).saveDonor(data);";
+  html += "}";
+
+  html += "function callNumber(p){if(!p||p==='N/A'){alert('মোবাইল নম্বর নেই');return;}var cleanP=p.replace(/[^0-9+]/g,'');window.location.href='tel:'+cleanP;}";
+  html += "function openWhatsApp(p){if(!p||p==='N/A'){alert('মোবাইল নম্বর নেই');return;}var n=p.replace(/[^0-9]/g,'');if(n.indexOf('880')!==0 && n.indexOf('0')===0)n='88'+n;window.open('https://wa.me/'+n,'_blank');}";
+
+  html += "</script></body></html>";
+  return html;
+}
