@@ -1,24 +1,88 @@
 <!DOCTYPE html>
 <html lang="bn">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blood Donation Family</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; max-width: 450px; width: 100%; }
-        h1 { color: #e63946; margin-bottom: 10px; }
-        p { color: #555; margin-bottom: 25px; line-height: 1.5; }
-        .btn { display: inline-block; background-color: #e63946; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-weight: bold; transition: background 0.3s; }
-        .btn:hover { background-color: #c5222f; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>blood.lagbe</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background: #fdf5f5; color: #2c3e50; }
+    
+    /* Landing Page Styles */
+    #landingPage {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #b70000, #7a0000);
+      padding: 15px;
+    }
+    .landing-card {
+      background: #ffffff;
+      padding: 25px;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+      border: 1px solid #f2dede;
+    }
+    .dev-img {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid #b70000;
+      box-shadow: 0 4px 10px rgba(183,0,0,0.3);
+    }
+    .enter-btn {
+      background: linear-gradient(135deg, #b70000, #8f0000);
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 8px;
+      cursor: pointer;
+      width: 100%;
+      box-shadow: 0 4px 10px rgba(183,0,0,0.3);
+      margin-top: 15px;
+    }
+  </style>
 </head>
 <body>
-    <div class="card">
-        <h1>🩸 Blood Donation Family</h1>
-        <p>জরুরি রক্তদাতা খুঁজুন অথবা একজন জীবনদাতা হিসেবে আমাদের সাথে যুক্ত হোন। আপনার সামান্য রক্তদান বাঁচাতে পারে একটি অমূল্য প্রাণ।</p>
-        <!-- আপনার Apps Script-এর মূল অ্যাপে যাওয়ার বাটন -->
-        <a href="https://script.google.com/macros/s/AKfycbyBQ3_NwaJutvep8GcUgdZ0FA3eI7pDVjBXVYuIvpxMPHsdl4G4spw3O1jfqnGi1eCt/exec" target="_blank" class="btn">অ্যাপে প্রবেশ করুন</a>
+
+  <!-- Landing / Welcome Page with Developer Info -->
+  <div id="landingPage">
+    <div class="landing-card">
+      <div style="margin-bottom: 18px;">
+        <img src="https://i.ibb.co.com/84XwN2n3/1000189430.jpg" alt="Developer Photo" class="dev-img">
+        <h3 style="margin: 10px 0 2px 0; color: #b70000; font-size: 18px; font-weight: 800;">MOHAMMED JESMUL HASAN</h3>
+        <p style="margin: 0; color: #666; font-size: 13px; font-weight: 600;">Developer & Founder</p>
+      </div>
+
+      <div style="font-size: 32px; color: #b70000; margin-bottom: 5px;">🩸</div>
+      <h2 style="color: #b70000; margin: 0 0 10px 0; font-size:22px; font-weight: 800;">Blood Donation Family</h2>
+      
+      <p style="color: #555; font-size: 14px; line-height: 1.5; margin-bottom: 20px;">
+        জরুরি রক্তদাতা খুঁজুন অথবা একজন জীবনদাতা হিসেবে আমাদের সাথে যুক্ত হন। আপনার সামান্য রক্তদান বাঁচাতে পারে একটি অমূল্য প্রাণ।
+      </p>
+
+      <button class="enter-btn" onclick="enterApp()">
+        অ্যাপে প্রবেশ করুন
+      </button>
     </div>
+  </div>
+
+  <script>
+    // আপনার Google Apps Script এর ওয়েব অ্যাপ ইউআরএল এখানে যুক্ত করা আছে
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyBQ3_NwaJutvep8GcUgdZ0FA3eI7pDVjBXVYuIvpxMPHsdl4G4spw3O1jfqnGi1eCt/exec";
+
+    function enterApp() {
+      if (APPS_SCRIPT_URL) {
+        window.location.href = APPS_SCRIPT_URL;
+      }
+    }
+  </script>
 </body>
 </html>
